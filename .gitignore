@@ -204,7 +204,6 @@ reveal.js/package.json
 reveal.js/plugin/
 reveal.js/test/
 reveal.js/
-slides/
 dataset/
 pipelines/datasets
 pipelines/configurations
