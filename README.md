@@ -6,7 +6,7 @@ This repo contains the slides, notebooks and example code for the PyData Berlin 
 
 The example luigi pipeline is under "pipelines". It can be started by running
 
-````bash
+```bash
 PYTHONPATH='.' luigi --module 00_training_pipeline Export --dataset-version 1 --model-version 1
 ```
 
