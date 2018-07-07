@@ -3,25 +3,32 @@ from luigi.parameter import IntParameter, Parameter
 from luigi import LocalTarget, Task
 from helper.keras_util import build_generator
 from helper.cv2_util import calc_baseline_acc
+from helper.model_util import define_model
 import json
-from keras.models import Sequential
-from keras.models import load_model
-from keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D
-from keras.layers.normalization import BatchNormalization
-import uuid
+import tensorflow as tf
+from tensorflow.python.saved_model import signature_constants
+from tensorflow.python.saved_model import tag_constants
+from tensorflow.python.saved_model import builder
 
 
+"""
+We want to download the dataset using "curl".
+Luigi provides a baseclass named **ExternalProgramTask** to utilize external programs. 
+It simply calls the external program with the provided commandline arguments. The output 
+target can be referenced through *self.output()*.
+"""
 class DownloadDataset(ExternalProgramTask):
 
-    dataset_version = Parameter()
-    dataset_name = Parameter()
+    dataset_version = IntParameter(default=1)
+    dataset_name = Parameter(default="dataset")
 
     base_url = "http://plainpixels.work/resources/datasets"
     file_fomat = "zip"
-    uid = uuid.uuid4()
 
     def output(self):
-        return LocalTarget("/tmp/%s.%s" % (self.uid, self.file_fomat))
+        return LocalTarget("/tmp/%s_v%d.%s" % (self.dataset_name,
+                                               self.dataset_version,
+                                               self.file_fomat))
 
     def program_args(self):
         url = "%s/%s_v%d.%s" % (self.base_url, 
@@ -33,6 +40,14 @@ class DownloadDataset(ExternalProgramTask):
                 url]
 
 
+"""
+Just as before, we use **ExternalProgramTask** to unzip the archive. The major difference is 
+that **ExtractDataset** now implements *requires(...)* and links to **DownloadDataset** as a
+dependency. The required target can be referenced through *self.input()*.
+
+*Input*: DownloadDataset <br>
+*Output*: A folder containing the images
+"""
 class ExtractDataset(ExternalProgramTask):
     
     dataset_version = IntParameter(default=1)
@@ -51,6 +66,13 @@ class ExtractDataset(ExternalProgramTask):
                 self.input().path]
 
 
+"""
+The configuration for the deep-learning model is essentially the Keras ImageDataGenerator. For 
+the sake of simplicity we do not parameterize this task. But we can grasp the idea how to do it.
+
+*Input*: Nothing required <br>
+*Output*: A pickled ImageDataGenerator
+"""
 class Configure(Task):
     
     config_name = Parameter(default="standard")
@@ -60,13 +82,20 @@ class Configure(Task):
 
     def run(self):
         import pickle
-        from keras.preprocessing.image import ImageDataGenerator 
+        from tensorflow import keras
         self.output().makedirs()
-        generator = ImageDataGenerator(rescale=1. / 255)
+        generator = keras.preprocessing.image.ImageDataGenerator(rescale=1. / 255)
         with self.output().open("w") as f:
             pickle.dump(generator, f)
 
 
+"""
+This task runs the baseline validation and saves it to a file. The same as before, flexibility can be greatly 
+enhanced by als versioning the baseline validation.
+
+*Input*: ExtractDataset, Configure <br>
+*Output*: A JSON-File containing the baseline accuracy
+"""
 class BaselineValidation(Task):
     
     dataset_version = IntParameter(default=1)
@@ -74,8 +103,6 @@ class BaselineValidation(Task):
     config_name = Parameter(default="standard")
 
     validation_set = "Test"
-    img_height = 100
-    img_width = 100
     baseline_name = "find_round_objects.json"
 
     def requires(self):
@@ -94,6 +121,12 @@ class BaselineValidation(Task):
             json.dump(result, f)
 
 
+"""
+Task No.5 trains a Keras model and persists it to the filesystem.
+
+*Input*: ExtractDataset, Configure <br>
+*Output*: A .h5 file representing the model architecture and its weights
+"""
 class TrainModel(Task):
     
     dataset_version = IntParameter(default=1)
@@ -103,9 +136,7 @@ class TrainModel(Task):
     model_name = Parameter(default="keras_model")
     
     training_set = "Training"
-    img_height = 100
-    img_width = 100
-    epochs = 1
+    epochs = 8
 
     def requires(self):
         yield ExtractDataset(self.dataset_version, self.dataset_name)
@@ -121,7 +152,7 @@ class TrainModel(Task):
         training_data = build_generator(config, dataset, self.training_set)
         input_shape = training_data.image_shape
         num_classes = len(training_data.class_indices)
-        model = self.define_model(input_shape, num_classes)
+        model = define_model(input_shape, num_classes)
         steps_per_epoch = training_data.samples // training_data.batch_size
         model.fit_generator(training_data,
                             steps_per_epoch=steps_per_epoch,
@@ -129,25 +160,15 @@ class TrainModel(Task):
                             verbose=2)
         model.save(self.output().path)
 
-    def define_model(self, input_shape, num_classes):
-        model = Sequential()
-        model.add(
-            Conv2D(filters=4, kernel_size=(2, 2), strides=1, activation='relu', input_shape=input_shape))
-        model.add(MaxPooling2D(pool_size=(2, 2)))
-        model.add(Conv2D(filters=8, kernel_size=(2, 2), strides=1, activation='relu'))
-        model.add(BatchNormalization())
-        model.add(MaxPooling2D(pool_size=(2, 2)))
-        model.add(Dropout(rate=0.25))
-        model.add(Flatten())
-        model.add(Dense(units=32, activation='relu'))
-        model.add(Dropout(rate=0.5))
-        model.add(Dense(units=num_classes, activation='softmax'))
-        model.compile(loss='categorical_crossentropy',
-                      optimizer="adam",
-                      metrics=['accuracy'])
-        return model
 
+"""
+The last task evaluates our model and - if it surpasses the baseline accuracy - saves the evaluation 
+results to the filesystem. Let the task crash if the model does not perform well enough. It's worth 
+an exception!
 
+*Input*: ExtractDataset, Configure, TrainModel, BaselineValidation<br>
+*Output*: A JSON file containing the evaluation results
+"""
 class Evaluate(Task):
     
     dataset_version = IntParameter(default=1)
@@ -157,8 +178,6 @@ class Evaluate(Task):
     model_name = Parameter(default="keras_model")
 
     validation_set = "Test"
-    img_height = 100
-    img_width = 100
 
     def requires(self):
         yield TrainModel(self.dataset_version, 
@@ -177,9 +196,10 @@ class Evaluate(Task):
         return LocalTarget("evaluation/%d/%s.json" % (self.model_version, self.model_name))
 
     def run(self):
+        from tensorflow import keras
         self.output().makedirs()
         model_path = self.input()[0].path
-        model = load_model(model_path)
+        model = keras.models.load_model(model_path)
         dataset = self.input()[2].path
         config = self.input()[3].path
         test_data = build_generator(config, dataset, self.validation_set)
@@ -194,3 +214,61 @@ class Evaluate(Task):
                 json.dump(result, o)
         else:
             raise Exception("Acc %f is smaller than baseline acc %f!" % (acc, baseline_acc))
+
+
+"""
+The Keras model is performing well. Let's deploy it to TensorFlow Serving.
+
+It can be loaded with TensorFlow Serving by the following command:
+tensorflow_model_server --model_name="keras_model" --model_base_path="serving/keras_model"
+
+Input: TrainModel, Evaluate
+Output: The TensorFlow-Graph and its weights
+"""
+class Export(Task):
+    dataset_version = IntParameter(default=1)
+    dataset_name = Parameter(default="dataset")
+    config_name = Parameter(default="standard")
+    model_version = IntParameter(default=1)
+    model_name = Parameter(default="keras_model")
+
+    def requires(self):
+        yield Evaluate(self.dataset_version,
+                       self.dataset_name,
+                       self.config_name,
+                       self.model_version,
+                       self.model_name)
+        yield TrainModel(self.dataset_version,
+                         self.dataset_name,
+                         self.config_name,
+                         self.model_version,
+                         self.model_name)
+
+    def output(self):
+        return LocalTarget("serving/%s/%d" % (self.model_name,
+                                              self.model_version))
+
+    def run(self):
+        from tensorflow import keras
+        self.output().makedirs()
+        model_path = self.input()[1].path
+        model = keras.models.load_model(model_path)
+        tensor_info_input = tf.saved_model.utils.build_tensor_info(model.input)
+        tensor_info_output = tf.saved_model.utils.build_tensor_info(model.output)
+        prediction_signature = (
+            tf.saved_model.signature_def_utils.build_signature_def(
+                inputs={'input': tensor_info_input},
+                outputs={'prediction': tensor_info_output},
+                method_name=signature_constants.PREDICT_METHOD_NAME))
+
+        export_path = self.output().path
+        tf_builder = builder.SavedModelBuilder(export_path)
+        with tf.keras.backend.get_session() as sess:
+            tf_builder.add_meta_graph_and_variables(
+                sess=sess,
+                tags=[tag_constants.SERVING],
+                signature_def_map={
+                    signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY: prediction_signature
+                }
+            )
+            tf_builder.save()

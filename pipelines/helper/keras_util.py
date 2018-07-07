@@ -1,5 +1,6 @@
 import pickle
 
+
 def build_generator(config_path, 
                     dataset_path, 
                     data_set_type,

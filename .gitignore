@@ -210,3 +210,4 @@ pipelines/configurations
 pipelines/baseline
 pipelines/evaluation
 pipelines/model
+pipelines/serving
