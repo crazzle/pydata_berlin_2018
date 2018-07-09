@@ -2,6 +2,14 @@
 
 This repo contains the slides, notebooks and example code for the PyData Berlin 2018 tutorial.
 
+## Setup
+
+You should install luigi before running the pipeline.
+
+```
+pip install -r requirements.txt
+```
+
 ## Code
 
 The example luigi pipeline is under "pipelines". It can be started by running
