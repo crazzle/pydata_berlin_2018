@@ -1,4 +1,4 @@
-# Production ready Data-Science with Python and Luigi
+# Production ready Data-Science with Python and Luigi [![Binder](https://mybinder.org/badge.svg)](https://mybinder.org/v2/gh/crazzle/pydata_berlin_2018/master)
 
 This repo contains the slides, notebooks and example code for the PyData Berlin 2018 tutorial.
 
