@@ -1,6 +1,7 @@
 from luigi.contrib.external_program import ExternalProgramTask
 from luigi.parameter import IntParameter, Parameter
 from luigi import LocalTarget, Task
+import luigi
 from helper.keras_util import build_generator
 from helper.cv2_util import calc_baseline_acc
 from helper.model_util import define_model
@@ -78,14 +79,14 @@ class Configure(Task):
     config_name = Parameter(default="standard")
 
     def output(self):
-        return LocalTarget("configurations/%s.pickle" % self.config_name)
+        return LocalTarget("configurations/%s.pickle" % self.config_name, format=luigi.format.Nop)
 
     def run(self):
         import pickle
         from tensorflow import keras
         self.output().makedirs()
         generator = keras.preprocessing.image.ImageDataGenerator(rescale=1. / 255)
-        with self.output().open("w") as f:
+        with self.output().open("wb") as f:
             pickle.dump(generator, f)
 
 
