@@ -6,7 +6,7 @@ def build_generator(config_path,
                     data_set_type,
                     img_height=100, img_width=100):
     
-    with open(config_path, "r") as f:
+    with open(config_path, "rb") as f:
         generator = pickle.load(f)
     
     path = "%s/%s" % (dataset_path, data_set_type)

@@ -11,6 +11,9 @@ from tensorflow.python.saved_model import signature_constants
 from tensorflow.python.saved_model import tag_constants
 from tensorflow.python.saved_model import builder
 
+import pickle
+import keras
+
 
 """
 We want to download the dataset using "curl".
@@ -104,7 +107,7 @@ class BaselineValidation(Task):
     config_name = Parameter(default="standard")
 
     validation_set = "Test"
-    baseline_name = "find_round_objects.json"
+    baseline_name = "find_round_objects"
 
     def requires(self):
         yield ExtractDataset(self.dataset_version, self.dataset_name)
@@ -118,7 +121,7 @@ class BaselineValidation(Task):
         config = self.input()[1].path
         test_data = build_generator(config, dataset, self.validation_set)
         result = calc_baseline_acc(test_data, dataset, self.validation_set)
-        with self.output().open("w") as f:
+        with self.output().open("wb") as f:
             json.dump(result, f)
 
 
@@ -197,7 +200,6 @@ class Evaluate(Task):
         return LocalTarget("evaluation/%d/%s.json" % (self.model_version, self.model_name))
 
     def run(self):
-        from tensorflow import keras
         self.output().makedirs()
         model_path = self.input()[0].path
         model = keras.models.load_model(model_path)
