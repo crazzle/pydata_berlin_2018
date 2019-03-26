@@ -11,9 +11,6 @@ from tensorflow.python.saved_model import signature_constants
 from tensorflow.python.saved_model import tag_constants
 from tensorflow.python.saved_model import builder
 
-import pickle
-import keras
-
 
 """
 We want to download the dataset using "curl".
@@ -140,7 +137,7 @@ class TrainModel(Task):
     model_name = Parameter(default="keras_model")
     
     training_set = "Training"
-    epochs = 8
+    epochs = 14
 
     def requires(self):
         yield ExtractDataset(self.dataset_version, self.dataset_name)
@@ -200,6 +197,7 @@ class Evaluate(Task):
         return LocalTarget("evaluation/%d/%s.json" % (self.model_version, self.model_name))
 
     def run(self):
+        from tensorflow import keras
         self.output().makedirs()
         model_path = self.input()[0].path
         model = keras.models.load_model(model_path)
@@ -212,7 +210,7 @@ class Evaluate(Task):
             baseline_acc = json.load(i)["acc"]
         acc = evaluation[1]
         if acc > baseline_acc:
-            result = {"acc": acc, "baseline_acc": baseline_acc}
+            result = {"acc": str(acc), "baseline_acc": baseline_acc}
             with self.output().open("w") as o:
                 json.dump(result, o)
         else:
