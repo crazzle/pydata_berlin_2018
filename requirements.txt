@@ -4,6 +4,6 @@ keras==2.1.6
 matplotlib==2.2.2
 jupyter==1.0.0
 jupyterlab==0.33.0rc0
-luigi==2.7.5
+luigi==2.8.0
 opencv-python-headless==3.4.1.15
 pillow
